@@ -59,4 +59,32 @@ Sağlayıcı sırlarını yalnızca backend `.env` dosyasında tutun; frontend'e
 
 ## Doğrulama ve Sınırlar
 
-`npm run build` frontend typecheck/build adımıdır. Backend davranış testleri `python -m pytest` ile çalıştırılır. Doğruluk iddiası için etiketlenmiş bir sorgu-belge değerlendirme kümesi gerekir. Retrieval performansını `Recall@k`, `MRR` veya `nDCG`; yanıt kalitesini kaynak desteği ve faithfulness ile ölçün. Bu projede henüz çalıştırılmamış bir Ragas/TruLens metriği ya da başarı yüzdesi raporlanmıyor. RRF sırası ve Cross-Encoder skoru olasılık/güven değeri değildir. Taranmış PDF'ler için OCR ayrıca eklenmelidir.
+`npm run build` frontend typecheck/build adımıdır. Backend testleri `python -m pytest tests -vv` ile çalışır. GitHub Actions Python syntax, pytest, frontend build ve Docker image build adımlarını çalıştırır.
+
+Retrieval ablation'ını yeniden üretmek için:
+
+```powershell
+python -m backend.evaluation --dataset evaluation/queries.jsonl --top-k 5 --output evaluation/latest.json
+```
+
+`evaluation/queries.jsonl` içindeki 56 el ile etiketlenmiş soru factual, keyword-heavy, semantic, multi-hop ve negative sınıflarını kapsar. `evaluation/baseline.json` çalışma anında üretilmiş başlangıç raporudur; dataset küçük ve seed belgelerle sınırlıdır. Bu nedenle rapordaki skorlar genel kalite kanıtı değildir. Reranker kapalıysa ilgili ablation atlanır. Cross-Encoder'ın hedefi retrieval sıralamasını iyileştirmektir; halüsinasyonu azalttığına dair burada bir sonuç iddiası yoktur.
+
+Rapor Recall@5, MRR, nDCG@5, negatif sorgularda abstention rate ve retrieval P50/P95 latency içerir. Bu retrieval latency embedding/vector çağrısını içerdiğinden yerel modelin ilk yüklemesinden etkilenebilir. Endpoint ayrıca retrieval ve answer fazı sürelerini yanıt metadata'sında döndürür; middleware `X-Process-Time-Ms` başlığı ve yapılandırılmış log sağlar. Üretim P50/P95 için gerçek belge korpusu ve tekrarlı yük testi gerekir. RRF sırası ve ham retrieval kanalı skorları olasılık/güven değeri değildir.
+
+## Güvenlik, Yaşam Döngüsü ve OCR
+
+Upload yalnızca PDF/TXT/Markdown kabul eder; varsayılan 20 MB limiti (`MAX_UPLOAD_BYTES`), içerik imzası/MIME denetimi, filename sanitization ve IP başına dakikada 10 yükleme sınırı uygular. Production yazma endpoint'lerinde `API_TOKEN` zorunludur; istemci `X-API-Key` header'ı göndermelidir. Bu basit ortak token, kullanıcı/tenant bazlı kimlik ve yetki yönetiminin yerine geçmez. `APP_ENV=production` ayarlayın ve `/api` uçlarını güvenilir bir ağ geçidinin arkasında yayınlayın.
+
+Yüklenen kayıtlar SQLite'ta status, versiyon, checksum ve dosya konumuyla izlenir; `GET /api/documents/{id}`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reindex` ve citation dosya route'u desteklenir. Re-index yeni chunk sürümü üretir. Frontend lifecycle eylemleri token koruması açılmışsa kimlik bilgisi UI'sı gerektirir; demo UI public yazma koruması açılmadan önce geliştirme içindir.
+
+Taranmış PDF OCR varsayılan olarak kapalıdır. `python -m pip install -r requirements-ocr.txt`, sistem Tesseract kurulumu ve dil paketleri (`eng`, `tur`) gerekir; `.env` içinde `OCR_ENABLED=true` ve `OCR_LANG=eng+tur` ile açılır.
+
+## Docker
+
+`.env` dosyasını hazırla, production için `API_TOKEN` ata ve ardından:
+
+```powershell
+docker compose up --build
+```
+
+Arayüz ve API `http://localhost:8000` üzerinden sunulur; Chroma ve yüklenen dosyalar `norma-data` volume'unda kalır.
